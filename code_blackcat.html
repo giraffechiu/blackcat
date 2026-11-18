@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>互動黑貓物理動態桌布</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #E3E3E3;
+      touch-action: none;
+    }
+    #physics-canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    /* 中央手繪橘框「＋」按鈕點擊回饋動畫 */
+    @keyframes plusPop {
+      0%   { transform: translate(-50%, -50%) scale(1); }
+      35%  { transform: translate(-50%, -50%) scale(0.84); }
+      72%  { transform: translate(-50%, -50%) scale(1.08); }
+      100% { transform: translate(-50%, -50%) scale(1); }
+    }
+    .plus-pop {
+      animation: plusPop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+  </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden bg-[#E3E3E3]">
+
+  <!-- 全螢幕物理繪圖畫布 -->
+  <canvas id="physics-canvas"></canvas>
+
+  <!-- 畫面正中央手繪灰綠色圓形「＋」按鈕（具備實體剛體碰撞箱） -->
+  <button
+    id="center-plus-btn"
+    type="button"
+    aria-label="新增黑貓與貓掌"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[66px] h-[66px] flex items-center justify-center cursor-pointer focus:outline-none bg-transparent"
+  >
+    <svg viewBox="0 0 100 100" class="w-full h-full overflow-visible">
+      <!-- 手繪微不規則灰綠色圓形外框 (#839794) -->
+      <path
+        d="M 48 13 C 71 11, 89 26, 88 50 C 87 75, 68 89, 45 88 C 24 87, 11 70, 13 46 C 14 24, 27 15, 48 13 Z"
+        fill="rgba(131, 151, 148, 0.15)"
+        stroke="#839794"
+        stroke-width="10.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <!-- 中央手繪灰綠色粗十字橫線 -->
+      <path
+        d="M 30 51 C 42 48, 58 53, 70 49"
+        stroke="#839794"
+        stroke-width="10.5"
+        stroke-linecap="round"
+      />
+      <!-- 中央手繪灰綠色粗十字直線 -->
+      <path
+        d="M 51 30 C 48 42, 53 58, 49 70"
+        stroke="#839794"
+        stroke-width="10.5"
+        stroke-linecap="round"
+      />
+    </svg>
+  </button>
+
+  <script>
+    (function () {
+      function initApp() {
+        const canvas = document.getElementById('physics-canvas');
+        const centerBtn = document.getElementById('center-plus-btn');
+        if (!canvas || !centerBtn) return;
+
+        const ctx = canvas.getContext('2d');
+
+        // ==========================================
+        // 1. 離屏高解析度手繪插畫貼圖（嚴格依 IMG_4576_2.jpeg 與 IMG_4587.png 重繪）
+        // ==========================================
+        function createCatSprite() {
+          const size = 320;
+          const off = document.createElement('canvas');
+          off.width = size;
+          off.height = size;
+          const c = off.getContext('2d');
+
+          c.save();
+          c.translate(size / 2, size / 2 + 8);
+
+          // 1. 炭黑手繪貓頭主輪廓 (#1A1A1A)：對照 IMG_4576_2.jpeg 飽滿梨形、左耳細長、右耳寬厚微斜
+          c.fillStyle = '#1A1A1A';
+          c.strokeStyle = '#1A1A1A';
+          c.lineWidth = 3.2;
+          c.lineJoin = 'round';
+          c.lineCap = 'round';
+
+          c.beginPath();
+          // 左耳較細長圓鈍頂端
+          c.moveTo(-66, -90);
+          // 左耳外側往下接飽滿微鼓左臉頰
+          c.bezierCurveTo(-76, -89, -75, -66, -73, -49);
+          c.bezierCurveTo(-86, -24, -97, 0, -92, 27);
+          // 圓潤微扁下巴底部
+          c.bezierCurveTo(-87, 62, -62, 81, -18, 87);
+          c.bezierCurveTo(20, 91, 58, 79, 80, 55);
+          // 右臉頰往上接右耳（右耳略高、寬厚微斜帶自然手繪折角）
+          c.bezierCurveTo(99, 34, 98, -5, 79, -37);
+          c.bezierCurveTo(83, -44, 75, -62, 65, -91);
+          c.bezierCurveTo(59, -102, 46, -98, 33, -86);
+          // 右耳內側接頭頂微凹自然弧線
+          c.bezierCurveTo(23, -77, 19, -71, 17, -69);
+          c.bezierCurveTo(-3, -71, -22, -67, -36, -60);
+          // 左耳內側接回左耳頂
+          c.bezierCurveTo(-44, -76, -56, -90, -66, -90);
+          c.closePath();
+          c.fill();
+          c.stroke();
+
+          // 2. 左耳內側粉紅色塊 (#F4B4D0)，下方帶手繪小缺口
+          c.fillStyle = '#F4B4D0';
+          c.beginPath();
+          c.moveTo(-62, -79);
+          c.bezierCurveTo(-67, -78, -66, -58, -62, -50);
+          c.bezierCurveTo(-58, -46, -55, -49, -55, -54);
+          c.bezierCurveTo(-54, -57, -51, -56, -49, -53);
+          c.bezierCurveTo(-46, -51, -44, -53, -47, -60);
+          c.bezierCurveTo(-51, -69, -57, -79, -62, -79);
+          c.closePath();
+          c.fill();
+
+          // 3. 右耳內側粉紅色塊 (#F4B4D0)，右側帶手繪鋸齒微凹
+          c.beginPath();
+          c.moveTo(55, -85);
+          c.bezierCurveTo(61, -85, 68, -67, 67, -61);
+          c.bezierCurveTo(66, -58, 62, -59, 59, -62);
+          c.bezierCurveTo(56, -64, 53, -62, 51, -59);
+          c.bezierCurveTo(48, -56, 44, -58, 45, -63);
+          c.bezierCurveTo(46, -71, 50, -85, 55, -85);
+          c.closePath();
+          c.fill();
+
+          // 4. 左眼：金橘黃 (#FCAE1E) 手繪不規則圓眼（略低、略小）
+          c.fillStyle = '#FCAE1E';
+          c.beginPath();
+          c.moveTo(-36, -27);
+          c.bezierCurveTo(-50, -26, -58, -13, -55, -1);
+          c.bezierCurveTo(-52, 11, -38, 16, -25, 10);
+          c.bezierCurveTo(-14, 5, -12, -10, -18, -19);
+          c.bezierCurveTo(-23, -25, -29, -27, -36, -27);
+          c.closePath();
+          c.fill();
+
+          // 左眼炭黑圓形瞳孔 (#1A1A1A)
+          c.fillStyle = '#1A1A1A';
+          c.beginPath();
+          c.arc(-36, -9, 5.2, 0, Math.PI * 2);
+          c.fill();
+
+          // 5. 右眼：金橘黃 (#FCAE1E) 手繪不規則圓眼（略高、略大）
+          c.fillStyle = '#FCAE1E';
+          c.beginPath();
+          c.moveTo(36, -40);
+          c.bezierCurveTo(19, -40, 10, -28, 12, -16);
+          c.bezierCurveTo(14, -4, 29, 0, 44, -4);
+          c.bezierCurveTo(55, -8, 58, -23, 53, -33);
+          c.bezierCurveTo(49, -39, 43, -40, 36, -40);
+          c.closePath();
+          c.fill();
+
+          // 右眼炭黑圓形瞳孔 (#1A1A1A)
+          c.fillStyle = '#1A1A1A';
+          c.beginPath();
+          c.arc(34, -22, 5.0, 0, Math.PI * 2);
+          c.fill();
+
+          // 6. 忠實還原原圖臉頰兩側極細微的淺灰白 (#E3E3E3) 手繪三角小點與短筆觸
+          c.fillStyle = '#E3E3E3';
+          c.beginPath();
+          c.moveTo(-57, 23);
+          c.lineTo(-59, 30);
+          c.lineTo(-55, 29);
+          c.closePath();
+          c.fill();
+
+          c.beginPath();
+          c.moveTo(59, 18);
+          c.lineTo(57, 25);
+          c.lineTo(61, 25);
+          c.closePath();
+          c.fill();
+
+          c.strokeStyle = '#E3E3E3';
+          c.lineWidth = 1.6;
+          c.beginPath();
+          c.moveTo(84, 24);
+          c.quadraticCurveTo(82, 30, 79, 35);
+          c.stroke();
+
+          c.restore();
+          return off;
+        }
+
+        function createPawSprite() {
+          const size = 240;
+          const off = document.createElement('canvas');
+          off.width = size;
+          off.height = size;
+          const c = off.getContext('2d');
+
+          c.save();
+          c.translate(size / 2, size / 2 + 4);
+
+          // 嚴格一比一還原 IMG_4587.png 的三趾肉球：
+          // 1. 炭黑 (#1A1A1A) 厚實整體連體輪廓（左低、中平、右略高的三個圓弧隆起 ＋ 圓潤厚實掌底）
+          c.fillStyle = '#1A1A1A';
+          c.strokeStyle = '#1A1A1A';
+          c.lineWidth = 4;
+          c.lineJoin = 'round';
+          c.lineCap = 'round';
+
+          c.beginPath();
+          // 左側第一趾外緣起始（位置較低、向左外張）
+          c.moveTo(-66, 22);
+          c.bezierCurveTo(-78, 6, -75, -18, -56, -28);
+          c.bezierCurveTo(-47, -33, -38, -32, -32, -29);
+          // 凹谷接中間第二趾（居中飽滿高起）
+          c.bezierCurveTo(-36, -46, -25, -63, -4, -64);
+          c.bezierCurveTo(11, -65, 21, -59, 26, -52);
+          // 凹谷接右側第三趾（位置最高、向右微斜）
+          c.bezierCurveTo(34, -64, 51, -69, 66, -61);
+          c.bezierCurveTo(80, -53, 83, -32, 72, -18);
+          // 右側往下接厚實圓潤掌底
+          c.bezierCurveTo(75, 4, 65, 31, 44, 46);
+          c.bezierCurveTo(22, 61, -11, 61, -34, 47);
+          c.bezierCurveTo(-50, 38, -59, 31, -66, 22);
+          c.closePath();
+          c.fill();
+          c.stroke();
+
+          // 2. 內部柔粉紅（珊瑚粉 #F3A8B2）四個手繪肉球色塊
+          c.fillStyle = '#F3A8B2';
+
+          // (A) 左側斜向橢圓小肉球
+          c.beginPath();
+          c.moveTo(-45, -13);
+          c.bezierCurveTo(-55, -13, -61, -3, -55, 6);
+          c.bezierCurveTo(-49, 14, -35, 16, -30, 8);
+          c.bezierCurveTo(-26, 0, -34, -13, -45, -13);
+          c.closePath();
+          c.fill();
+
+          // (B) 中間直立圓潤小肉球
+          c.beginPath();
+          c.moveTo(-4, -49);
+          c.bezierCurveTo(-15, -49, -20, -37, -16, -27);
+          c.bezierCurveTo(-12, -18, 2, -18, 8, -26);
+          c.bezierCurveTo(13, -34, 8, -49, -4, -49);
+          c.closePath();
+          c.fill();
+
+          // (C) 右側微斜圓潤小肉球
+          c.beginPath();
+          c.moveTo(49, -52);
+          c.bezierCurveTo(37, -51, 31, -39, 35, -30);
+          c.bezierCurveTo(39, -22, 52, -22, 59, -30);
+          c.bezierCurveTo(64, -37, 60, -52, 49, -52);
+          c.closePath();
+          c.fill();
+
+          // (D) 下方大型圓角梯形／不規則圓潤主肉墊
+          c.beginPath();
+          c.moveTo(4, -8);
+          c.bezierCurveTo(-12, -8, -25, 2, -23, 18);
+          c.bezierCurveTo(-21, 33, -8, 39, 9, 38);
+          c.bezierCurveTo(26, 37, 37, 25, 39, 10);
+          c.bezierCurveTo(40, -3, 25, -8, 4, -8);
+          c.closePath();
+          c.fill();
+
+          c.restore();
+          return off;
+        }
+
+        const catSprite = createCatSprite();
+        const pawSprite = createPawSprite();
+
+        // ==========================================
+        // 2. 視窗尺寸與高解析度畫布設定
+        // ==========================================
+        let width = window.innerWidth || document.documentElement.clientWidth || 375;
+        let height = window.innerHeight || document.documentElement.clientHeight || 667;
+        let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+        function updateCanvasSize() {
+          width = window.innerWidth || document.documentElement.clientWidth || 375;
+          height = window.innerHeight || document.documentElement.clientHeight || 667;
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(width * dpr);
+          canvas.height = Math.floor(height * dpr);
+          canvas.style.width = width + 'px';
+          canvas.style.height = height + 'px';
+        }
+        updateCanvasSize();
+
+        // 隨機返回「原始尺寸」或「放大一級尺寸」，讓畫面更有層次感
+        function getTargetSizes() {
+          const isLarge = Math.random() > 0.5;
+          if (isLarge) {
+            // 放大一級
+            const rawCat = width * 0.165;
+            const catDiameter = Math.max(58, Math.min(90, rawCat));
+            const pawDiameter = catDiameter * 0.68;
+            return { catDiameter, pawDiameter };
+          } else {
+            // 原始尺寸
+            const rawCat = width * 0.132;
+            const catDiameter = Math.max(46, Math.min(68, rawCat));
+            const pawDiameter = catDiameter * 0.64;
+            return { catDiameter, pawDiameter };
+          }
+        }
+
+        // ==========================================
+        // 3. Matter.js 2D 剛體物理引擎（含內建純 JS 碰撞備援）
+        // ==========================================
+        const hasMatter = typeof window.Matter !== 'undefined';
+        const activeItems = [];
+        const MAX_ITEMS = 35;
+
+        let engine = null;
+        let walls = [];
+        let centerObstacle = null;
+
+        // 游標／手指驚嚇排斥力場狀態
+        const pointerState = {
+          x: -9999,
+          y: -9999,
+          active: false
+        };
+
+        // 備援物理狀態（僅在 CDN 完全無法連線時自動啟用）
+        const fallbackState = {
+          gravity: { x: 0, y: 0.42 }
+        };
+
+        if (hasMatter) {
+          const { Engine } = window.Matter;
+          engine = Engine.create({
+            gravity: { x: 0, y: 1.0 }
+          });
+        }
+
+        // 監聽滑鼠與觸控移動，建立排斥力場座標
+        window.addEventListener('pointermove', (e) => {
+          pointerState.x = e.clientX;
+          pointerState.y = e.clientY;
+          pointerState.active = true;
+        }, { passive: true });
+
+        window.addEventListener('pointerdown', (e) => {
+          pointerState.x = e.clientX;
+          pointerState.y = e.clientY;
+          pointerState.active = true;
+        }, { passive: true });
+
+        window.addEventListener('pointerleave', () => {
+          pointerState.active = false;
+        });
+
+        window.addEventListener('pointerup', (e) => {
+          // 觸控結束時取消手指力場，滑鼠則維持游標位置
+          if (e.pointerType === 'touch') {
+            pointerState.active = false;
+          }
+        });
+
+        function buildBoundaries() {
+          if (!hasMatter || !engine) return;
+          const { World, Bodies } = window.Matter;
+
+          if (walls.length > 0) World.remove(engine.world, walls);
+          if (centerObstacle) World.remove(engine.world, centerObstacle);
+
+          const thickness = 160;
+          const wallOpts = {
+            isStatic: true,
+            restitution: 0.5,
+            friction: 0.3,
+            frictionStatic: 0.4
+          };
+
+          walls = [
+            Bodies.rectangle(width / 2, height + thickness / 2, width + thickness * 2, thickness, wallOpts),
+            Bodies.rectangle(width / 2, -thickness * 3, width + thickness * 2, thickness, wallOpts),
+            Bodies.rectangle(-thickness / 2, height / 2, thickness, height * 4, wallOpts),
+            Bodies.rectangle(width + thickness / 2, height / 2, thickness, height * 4, wallOpts)
+          ];
+          World.add(engine.world, walls);
+
+          // 中央手繪紫色圓形「＋」靜態剛體碰撞箱
+          const btnRadius = 31;
+          centerObstacle = Bodies.circle(width / 2, height / 2, btnRadius, {
+            isStatic: true,
+            restitution: 0.48,
+            friction: 0.25,
+            frictionStatic: 0.3
+          });
+          World.add(engine.world, centerObstacle);
+        }
+
+        buildBoundaries();
+
+        // ==========================================
+        // 4. 生成黑貓頭與粉紅貓掌物件
+        // ==========================================
+        function spawnItem(type, x, y, vx = 0, vy = 0) {
+          // 超過上限時平滑淡出最舊物件以維持流暢 60fps
+          if (activeItems.length >= MAX_ITEMS) {
+            for (let i = 0; i < activeItems.length; i++) {
+              if (!activeItems[i].removing) {
+                activeItems[i].removing = true;
+                break;
+              }
+            }
+          }
+
+          const { catDiameter, pawDiameter } = getTargetSizes();
+          const diameter = type === 'cat' ? catDiameter * (0.96 + Math.random() * 0.08) : pawDiameter * (0.95 + Math.random() * 0.1);
+          const radius = diameter / 2;
+
+          if (hasMatter && engine) {
+            const { World, Bodies, Body } = window.Matter;
+            let body;
+
+            if (type === 'cat') {
+              // 複合剛體：圓潤主臉龐 + 左右兩隻耳朵圓形剛體，碰撞時產生真實翻滾與卡邊平衡
+              const headRadius = radius * 0.88;
+              const earRadius = radius * 0.33;
+              const headPart = Bodies.circle(x, y + radius * 0.12, headRadius);
+              const leftEarPart = Bodies.circle(x - radius * 0.56, y - radius * 0.64, earRadius);
+              const rightEarPart = Bodies.circle(x + radius * 0.52, y - radius * 0.68, earRadius);
+
+              body = Body.create({
+                parts: [headPart, leftEarPart, rightEarPart],
+                restitution: 0.48,
+                friction: 0.22,
+                frictionAir: 0.008,
+                density: 0.0018
+              });
+            } else {
+              // 貼合三趾肉球輪廓的複合剛體碰撞箱（主掌底圓 ＋ 左中右三趾凸起，使翻滾碰撞更真實）
+              const palmPart = Bodies.circle(x + radius * 0.04, y + radius * 0.14, radius * 0.72);
+              const leftToePart = Bodies.circle(x - radius * 0.56, y - radius * 0.06, radius * 0.34);
+              const midToePart = Bodies.circle(x - radius * 0.06, y - radius * 0.46, radius * 0.36);
+              const rightToePart = Bodies.circle(x + radius * 0.52, y - radius * 0.42, radius * 0.34);
+
+              body = Body.create({
+                parts: [palmPart, leftToePart, midToePart, rightToePart],
+                restitution: 0.46,
+                friction: 0.2,
+                frictionAir: 0.007,
+                density: 0.0015
+              });
+            }
+
+            Body.setAngle(body, (Math.random() - 0.5) * 1.1);
+            Body.setVelocity(body, { x: vx, y: vy });
+            Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.08);
+            World.add(engine.world, body);
+
+            activeItems.push({
+              type,
+              body,
+              diameter,
+              radius,
+              scale: 1,
+              alpha: 1,
+              removing: false
+            });
+          } else {
+            // 純 JS 備援剛體物件
+            activeItems.push({
+              type,
+              x,
+              y,
+              vx,
+              vy,
+              angle: (Math.random() - 0.5) * 1.1,
+              vAngle: (Math.random() - 0.5) * 0.06,
+              diameter,
+              radius,
+              scale: 1,
+              alpha: 1,
+              removing: false
+            });
+          }
+        }
+
+        // 開啟頁面立即自動落下 6 隻黑貓頭與 3 個粉紅貓掌（對應影片初始狀態）
+        const initialItems = [
+          { type: 'cat', rx: 0.24, ry: -0.05, vx: 0.8 },
+          { type: 'cat', rx: 0.48, ry: -0.10, vx: -0.5 },
+          { type: 'paw', rx: 0.36, ry: -0.02, vx: 0.4 },
+          { type: 'cat', rx: 0.72, ry: -0.06, vx: -1.1 },
+          { type: 'paw', rx: 0.60, ry: -0.14, vx: 0.6 },
+          { type: 'cat', rx: 0.34, ry: -0.18, vx: 0.3 },
+          { type: 'cat', rx: 0.82, ry: -0.22, vx: -0.7 },
+          { type: 'paw', rx: 0.52, ry: -0.25, vx: -0.3 },
+          { type: 'cat', rx: 0.64, ry: -0.28, vx: 0.5 }
+        ];
+
+        initialItems.forEach((cfg, idx) => {
+          setTimeout(() => {
+            spawnItem(
+              cfg.type,
+              width * cfg.rx,
+              height * cfg.ry,
+              cfg.vx,
+              1.4 + idx * 0.22
+            );
+          }, idx * 75);
+        });
+
+        // ==========================================
+        // 5. 中央灰綠色「＋」按鈕點擊與手機陀螺儀傾斜感應
+        // ==========================================
+        let lastSpawnTime = 0;
+
+        function triggerSpawn(e) {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+
+          const now = Date.now();
+          if (now - lastSpawnTime < 90) return;
+          lastSpawnTime = now;
+
+          // 按鈕心跳縮放回饋動畫
+          centerBtn.classList.remove('plus-pop');
+          void centerBtn.offsetWidth;
+          centerBtn.classList.add('plus-pop');
+
+          // 65% 黑貓頭、35% 粉紅貓掌，從上方隨機水平位置掉落
+          const isCat = Math.random() < 0.65;
+          const dropX = width * (0.16 + Math.random() * 0.68);
+          const vx = (Math.random() - 0.5) * 4.0;
+          spawnItem(isCat ? 'cat' : 'paw', dropX, -26, vx, 2.0);
+
+          tryEnableTiltSilently();
+        }
+
+        centerBtn.addEventListener('pointerdown', triggerSpawn);
+        centerBtn.addEventListener('click', triggerSpawn);
+
+        // 手機陀螺儀 / 傾斜重力感應（iOS Safari 與 Android）
+        let tiltEnabled = false;
+        let tiltRequested = false;
+
+        function handleOrientation(event) {
+          try {
+            if (!tiltEnabled || !event) return;
+            const gamma = event.gamma; // 左右傾斜 (-90 ~ 90)
+            const beta = event.beta;   // 前後傾斜 (-180 ~ 180)
+            if (typeof gamma !== 'number' || typeof beta !== 'number') return;
+
+            const gx = Math.max(-1.45, Math.min(1.45, gamma / 30));
+            const gy = Math.max(-1.45, Math.min(1.45, (beta - 25) / 36));
+            const finalGy = Math.abs(gx) < 0.12 && Math.abs(gy) < 0.12 ? 0.38 : gy;
+
+            if (hasMatter && engine) {
+              engine.world.gravity.x = gx;
+              engine.world.gravity.y = finalGy;
+            } else {
+              fallbackState.gravity.x = gx * 0.42;
+              fallbackState.gravity.y = finalGy * 0.42;
+            }
+          } catch (_) {
+            // 忽略感應器讀取錯誤
+          }
+        }
+
+        async function tryEnableTiltSilently() {
+          if (tiltEnabled || tiltRequested) return;
+          tiltRequested = true;
+          try {
+            if (
+              typeof DeviceOrientationEvent !== 'undefined' &&
+              typeof DeviceOrientationEvent.requestPermission === 'function'
+            ) {
+              const permission = await DeviceOrientationEvent.requestPermission();
+              if (permission === 'granted') {
+                tiltEnabled = true;
+                window.addEventListener('deviceorientation', handleOrientation);
+              }
+            } else if ('DeviceOrientationEvent' in window) {
+              tiltEnabled = true;
+              window.addEventListener('deviceorientation', handleOrientation);
+            }
+          } catch (_) {
+            // 靜默忽略權限拒絕
+          }
+        }
+
+        if (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission !== 'function'
+        ) {
+          tryEnableTiltSilently();
+        }
+        window.addEventListener('pointerdown', tryEnableTiltSilently, { passive: true });
+
+        // ==========================================
+        // 6. 備援物理步進計算（僅無 Matter.js 時運行）
+        // ==========================================
+        function updateFallbackPhysics() {
+          const btnRadius = 31;
+          const cx = width / 2;
+          const cy = height / 2;
+          const repelRadius = Math.max(95, Math.min(135, width * 0.14));
+
+          for (let i = 0; i < activeItems.length; i++) {
+            const a = activeItems[i];
+
+            a.vx = (a.vx + fallbackState.gravity.x) * 0.992;
+            a.vy = (a.vy + fallbackState.gravity.y) * 0.992;
+
+            // 滑鼠靠近自動驚嚇彈跳避開
+            if (pointerState.active) {
+              const pdx = a.x - pointerState.x;
+              const pdy = a.y - pointerState.y;
+              const pDist = Math.hypot(pdx, pdy);
+              const triggerDist = repelRadius + a.radius;
+              if (pDist < triggerDist) {
+                const nx = pDist > 0.01 ? pdx / pDist : (Math.random() - 0.5);
+                const ny = pDist > 0.01 ? pdy / pDist : -1;
+                const ratio = 1 - pDist / triggerDist;
+                const jumpStrength = 1.6 + ratio * 3.2;
+                a.vx += nx * jumpStrength;
+                a.vy += ny * jumpStrength - ratio * 2.2; // 額外向上跳開的驚嚇感
+                a.vAngle += nx * (0.04 + ratio * 0.08);
+              }
+            }
+
+            a.x += a.vx;
+            a.y += a.vy;
+            a.angle += a.vAngle;
+            a.vAngle *= 0.985;
+
+            // 四邊螢幕邊界碰撞
+            if (a.x - a.radius < 0) {
+              a.x = a.radius;
+              a.vx = Math.abs(a.vx) * 0.5;
+              a.vAngle = a.vy * 0.015;
+            } else if (a.x + a.radius > width) {
+              a.x = width - a.radius;
+              a.vx = -Math.abs(a.vx) * 0.5;
+              a.vAngle = -a.vy * 0.015;
+            }
+            if (a.y + a.radius > height) {
+              a.y = height - a.radius;
+              a.vy = -Math.abs(a.vy) * 0.48;
+              a.vx *= 0.94;
+              a.vAngle = a.vx * 0.02;
+            } else if (a.y - a.radius < -250) {
+              a.y = -250 + a.radius;
+              a.vy = Math.abs(a.vy) * 0.48;
+            }
+
+            // 中央手繪紫色「＋」按鈕圓形碰撞
+            const dx = a.x - cx;
+            const dy = a.y - cy;
+            const distSq = dx * dx + dy * dy;
+            const minDist = a.radius + btnRadius;
+            if (distSq < minDist * minDist && distSq > 0.0001) {
+              const dist = Math.sqrt(distSq);
+              const nx = dx / dist;
+              const ny = dy / dist;
+              const overlap = minDist - dist;
+              a.x += nx * overlap;
+              a.y += ny * overlap;
+              const dot = a.vx * nx + a.vy * ny;
+              if (dot < 0) {
+                a.vx -= 1.48 * dot * nx;
+                a.vy -= 1.48 * dot * ny;
+                a.vAngle += (nx * a.vy - ny * a.vx) * 0.015;
+              }
+            }
+          }
+
+          // 物件彼此碰撞
+          for (let i = 0; i < activeItems.length; i++) {
+            for (let j = i + 1; j < activeItems.length; j++) {
+              const a = activeItems[i];
+              const b = activeItems[j];
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const dist = Math.hypot(dx, dy);
+              const minDist = a.radius + b.radius;
+              if (dist < minDist && dist > 0.001) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const overlap = (minDist - dist) * 0.5;
+                a.x -= nx * overlap;
+                a.y -= ny * overlap;
+                b.x += nx * overlap;
+                b.y += ny * overlap;
+                const rvx = b.vx - a.vx;
+                const rvy = b.vy - a.vy;
+                const velAlongNormal = rvx * nx + rvy * ny;
+                if (velAlongNormal < 0) {
+                  const impulse = -(1 + 0.48) * velAlongNormal * 0.5;
+                  a.vx -= impulse * nx;
+                  a.vy -= impulse * ny;
+                  b.vx += impulse * nx;
+                  b.vy += impulse * ny;
+                }
+              }
+            }
+          }
+        }
+
+        // ==========================================
+        // 7. 視窗尺寸變更與 60fps 渲染主迴圈
+        // ==========================================
+        window.addEventListener('resize', () => {
+          updateCanvasSize();
+          if (hasMatter) {
+            buildBoundaries();
+          }
+        });
+
+        let lastFrameTime = performance.now();
+
+        function renderLoop(now) {
+          const dt = Math.min(now - lastFrameTime, 32);
+          lastFrameTime = now;
+
+          if (hasMatter && engine) {
+            // 滑鼠／手指靠近時，對範圍內的貓臉與貓掌施加驚嚇跳開的物理推力
+            if (pointerState.active) {
+              const { Body } = window.Matter;
+              const repelRadius = Math.max(95, Math.min(135, width * 0.14));
+
+              for (let i = 0; i < activeItems.length; i++) {
+                const item = activeItems[i];
+                if (!item.body || item.removing) continue;
+
+                const bx = item.body.position.x;
+                const by = item.body.position.y;
+                const dx = bx - pointerState.x;
+                const dy = by - pointerState.y;
+                const dist = Math.hypot(dx, dy);
+                const triggerDist = repelRadius + item.radius;
+
+                if (dist < triggerDist) {
+                  const nx = dist > 0.01 ? dx / dist : (Math.random() - 0.5);
+                  const ny = dist > 0.01 ? dy / dist : -1;
+                  const ratio = 1 - dist / triggerDist;
+
+                  // 結合外推力與向上彈跳衝量，營造受驚嚇跳開的效果
+                  const hopSpeed = 4.2 + ratio * 7.8;
+                  const targetVx = item.body.velocity.x * 0.65 + nx * hopSpeed;
+                  const targetVy = Math.min(item.body.velocity.y, 0) * 0.5 + ny * hopSpeed - (2.4 + ratio * 4.2);
+
+                  Body.setVelocity(item.body, {
+                    x: Math.max(-18, Math.min(18, targetVx)),
+                    y: Math.max(-18, Math.min(18, targetVy))
+                  });
+                  Body.setAngularVelocity(
+                    item.body,
+                    item.body.angularVelocity + nx * (0.04 + ratio * 0.09)
+                  );
+                }
+              }
+            }
+
+            window.Matter.Engine.update(engine, dt || 16.667);
+          } else {
+            updateFallbackPhysics();
+          }
+
+          ctx.save();
+          ctx.scale(dpr, dpr);
+
+          // 純淨淺灰背景 #E3E3E3（取自附圖背景色）
+          ctx.fillStyle = '#E3E3E3';
+          ctx.fillRect(0, 0, width, height);
+
+          // 繪製所有黑貓頭與粉紅貓掌
+          for (let i = activeItems.length - 1; i >= 0; i--) {
+            const item = activeItems[i];
+
+            if (item.removing) {
+              item.scale -= 0.05;
+              item.alpha -= 0.05;
+              if (item.scale <= 0.05 || item.alpha <= 0.05) {
+                if (hasMatter && engine && item.body) {
+                  window.Matter.World.remove(engine.world, item.body);
+                }
+                activeItems.splice(i, 1);
+                continue;
+              }
+            }
+
+            let posX, posY, angle;
+            if (hasMatter && item.body) {
+              posX = item.body.position.x;
+              posY = item.body.position.y;
+              angle = item.body.angle;
+
+              if (posY > height + 300 || posX < -300 || posX > width + 300) {
+                window.Matter.Body.setPosition(item.body, {
+                  x: width * (0.25 + Math.random() * 0.5),
+                  y: -25
+                });
+                window.Matter.Body.setVelocity(item.body, { x: 0, y: 1.5 });
+              }
+            } else {
+              posX = item.x;
+              posY = item.y;
+              angle = item.angle;
+            }
+
+            ctx.save();
+            ctx.translate(posX, posY);
+            ctx.rotate(angle);
+            ctx.scale(item.scale, item.scale);
+            ctx.globalAlpha = Math.max(0, Math.min(1, item.alpha));
+
+            const sprite = item.type === 'cat' ? catSprite : pawSprite;
+            const drawSize = item.diameter * (item.type === 'cat' ? 1.24 : 1.22);
+            ctx.drawImage(sprite, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
+
+            ctx.restore();
+          }
+
+          ctx.restore();
+          requestAnimationFrame(renderLoop);
+        }
+
+        requestAnimationFrame(renderLoop);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApp);
+      } else {
+        initApp();
+      }
+    })();
+  </script>
+</body>
+</html>
