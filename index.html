@@ -593,9 +593,9 @@
               });
             }
 
-            Body.setAngle(body, (Math.random() - 0.5) * 1.1);
+            Body.setAngle(body, (Math.random() - 0.5) * 0.6);
             Body.setVelocity(body, { x: vx, y: vy });
-            Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.08);
+            Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.025);
             World.add(engine.world, body);
 
             activeItems.push({
@@ -748,7 +748,8 @@
           const btnRadius = 31;
           const cx = width / 2;
           const cy = height / 2;
-          const repelRadius = Math.max(95, Math.min(135, width * 0.14));
+          // 僅在游標／手指實際碰到物體外緣時才觸發（僅保留極小 6px 接觸容差）
+          const contactMargin = 6;
 
           for (let i = 0; i < activeItems.length; i++) {
             const a = activeItems[i];
@@ -756,28 +757,27 @@
             a.vx = (a.vx + fallbackState.gravity.x) * 0.992;
             a.vy = (a.vy + fallbackState.gravity.y) * 0.992;
 
-            // 滑鼠靠近自動驚嚇彈跳避開
+            // 滑鼠實際碰到物體時才觸發驚嚇彈跳避開，並減少旋轉幅度
             if (pointerState.active) {
               const pdx = a.x - pointerState.x;
               const pdy = a.y - pointerState.y;
               const pDist = Math.hypot(pdx, pdy);
-              const triggerDist = repelRadius + a.radius;
+              const triggerDist = a.radius + contactMargin;
               if (pDist < triggerDist) {
                 const nx = pDist > 0.01 ? pdx / pDist : (Math.random() - 0.5);
                 const ny = pDist > 0.01 ? pdy / pDist : -1;
                 const ratio = 1 - pDist / triggerDist;
-                const jumpStrength = 1.6 + ratio * 3.2;
+                const jumpStrength = 1.8 + ratio * 3.0;
                 a.vx += nx * jumpStrength;
-                a.vy += ny * jumpStrength - ratio * 2.2;
-                a.vAngle += nx * (0.04 + ratio * 0.08);
+                a.vy += ny * jumpStrength - (1.4 + ratio * 2.0);
+                a.vAngle += nx * (0.008 + ratio * 0.015);
               }
             }
 
             a.x += a.vx;
             a.y += a.vy;
             a.angle += a.vAngle;
-            a.vAngle *= 0.985;
-
+            a.vAngle *= 0.94;
             // 四邊螢幕邊界碰撞
             if (a.x - a.radius < 0) {
               a.x = a.radius;
@@ -868,10 +868,10 @@
           lastFrameTime = now;
 
           if (hasMatter && engine) {
-            // 滑鼠／手指靠近時，對範圍內的角色施加驚嚇跳開的物理推力
+            // 滑鼠／手指實際碰到物體外緣時才施加驚嚇跳開推力，並減少旋轉程度
             if (pointerState.active) {
               const { Body } = window.Matter;
-              const repelRadius = Math.max(95, Math.min(135, width * 0.14));
+              const contactMargin = 6;
 
               for (let i = 0; i < activeItems.length; i++) {
                 const item = activeItems[i];
@@ -882,24 +882,26 @@
                 const dx = bx - pointerState.x;
                 const dy = by - pointerState.y;
                 const dist = Math.hypot(dx, dy);
-                const triggerDist = repelRadius + item.radius;
+                const triggerDist = item.radius + contactMargin;
 
                 if (dist < triggerDist) {
                   const nx = dist > 0.01 ? dx / dist : (Math.random() - 0.5);
                   const ny = dist > 0.01 ? dy / dist : -1;
                   const ratio = 1 - dist / triggerDist;
 
-                  const hopSpeed = 4.2 + ratio * 7.8;
-                  const targetVx = item.body.velocity.x * 0.65 + nx * hopSpeed;
-                  const targetVy = Math.min(item.body.velocity.y, 0) * 0.5 + ny * hopSpeed - (2.4 + ratio * 4.2);
+                  const hopSpeed = 4.5 + ratio * 7.0;
+                  const targetVx = item.body.velocity.x * 0.6 + nx * hopSpeed;
+                  const targetVy = Math.min(item.body.velocity.y, 0) * 0.5 + ny * hopSpeed - (2.4 + ratio * 3.8);
 
                   Body.setVelocity(item.body, {
                     x: Math.max(-18, Math.min(18, targetVx)),
                     y: Math.max(-18, Math.min(18, targetVy))
                   });
+                  // 大幅減小額外施加的旋轉角速度並限制最大轉速，避免過度翻轉
+                  const nextAngVel = item.body.angularVelocity * 0.6 + nx * (0.008 + ratio * 0.018);
                   Body.setAngularVelocity(
                     item.body,
-                    item.body.angularVelocity + nx * (0.04 + ratio * 0.09)
+                    Math.max(-0.08, Math.min(0.08, nextAngVel))
                   );
                 }
               }
