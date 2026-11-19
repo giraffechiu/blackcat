@@ -552,40 +552,42 @@
             let body;
 
             if (type === 'cat') {
-              // 複合剛體：圓潤主臉龐 + 左右兩隻耳朵圓形剛體
-              const headRadius = radius * 0.88;
-              const earRadius = radius * 0.33;
-              const headPart = Bodies.circle(x, y + radius * 0.12, headRadius);
-              const leftEarPart = Bodies.circle(x - radius * 0.56, y - radius * 0.64, earRadius);
-              const rightEarPart = Bodies.circle(x + radius * 0.52, y - radius * 0.68, earRadius);
+              // 複合剛體：以貼圖幾何中心為基準，精準貼合臉頰、下巴與雙耳輪廓，避免底部懸空
+              const anchorPart = Bodies.circle(x, y, radius * 0.74);
+              const leftEarPart = Bodies.circle(x - radius * 0.44, y - radius * 0.48, radius * 0.22);
+              const rightEarPart = Bodies.circle(x + radius * 0.42, y - radius * 0.50, radius * 0.24);
 
               body = Body.create({
-                parts: [headPart, leftEarPart, rightEarPart],
+                parts: [anchorPart, leftEarPart, rightEarPart],
                 restitution: 0.48,
                 friction: 0.22,
                 frictionAir: 0.008,
                 density: 0.0018
               });
             } else if (type === 'paw') {
-              // 貼合三趾肉球輪廓的複合剛體碰撞箱
-              const palmPart = Bodies.circle(x + radius * 0.04, y + radius * 0.14, radius * 0.72);
-              const leftToePart = Bodies.circle(x - radius * 0.56, y - radius * 0.06, radius * 0.34);
-              const midToePart = Bodies.circle(x - radius * 0.06, y - radius * 0.46, radius * 0.36);
-              const rightToePart = Bodies.circle(x + radius * 0.52, y - radius * 0.42, radius * 0.34);
+              // 貼合三趾肉球輪廓的複合剛體碰撞箱（以貼圖中心為基準）
+              const anchorPart = Bodies.circle(x, y + radius * 0.04, radius * 0.63);
+              const leftToePart = Bodies.circle(x - radius * 0.46, y - radius * 0.06, radius * 0.28);
+              const midToePart = Bodies.circle(x - radius * 0.04, y - radius * 0.36, radius * 0.28);
+              const rightToePart = Bodies.circle(x + radius * 0.44, y - radius * 0.32, radius * 0.28);
 
               body = Body.create({
-                parts: [palmPart, leftToePart, midToePart, rightToePart],
+                parts: [anchorPart, leftToePart, midToePart, rightToePart],
                 restitution: 0.46,
                 friction: 0.2,
                 frictionAir: 0.007,
                 density: 0.0015
               });
             } else {
-              // 蝴蝶左右雙翅複合圓形剛體
-              const leftWing = Bodies.circle(x - radius * 0.38, y, radius * 0.58);
-              const rightWing = Bodies.circle(x + radius * 0.38, y, radius * 0.58);
+              // 蝴蝶四翅複合圓形剛體：完整包覆上下左右四片翅膀與觸角，避免下翅超出底板
+              const anchorPart = Bodies.circle(x, y, radius * 0.32);
+              const upperLeftWing = Bodies.circle(x - radius * 0.36, y - radius * 0.14, radius * 0.42);
+              const upperRightWing = Bodies.circle(x + radius * 0.36, y - radius * 0.12, radius * 0.40);
+              const lowerLeftWing = Bodies.circle(x - radius * 0.30, y + radius * 0.50, radius * 0.38);
+              const lowerRightWing = Bodies.circle(x + radius * 0.26, y + radius * 0.42, radius * 0.32);
+
               body = Body.create({
-                parts: [leftWing, rightWing],
+                parts: [anchorPart, upperLeftWing, upperRightWing, lowerLeftWing, lowerRightWing],
                 restitution: 0.52,
                 friction: 0.18,
                 frictionAir: 0.011,
@@ -937,8 +939,10 @@
 
             let posX, posY, angle;
             if (hasMatter && item.body) {
-              posX = item.body.position.x;
-              posY = item.body.position.y;
+              // 使用第一個子剛體（貼圖幾何中心錨點）作為繪製原點，確保視覺邊緣與碰撞邊界完全一致
+              const spriteAnchor = item.body.parts && item.body.parts[1] ? item.body.parts[1].position : item.body.position;
+              posX = spriteAnchor.x;
+              posY = spriteAnchor.y;
               angle = item.body.angle;
 
               if (posY > height + 300 || posX < -300 || posX > width + 300) {
