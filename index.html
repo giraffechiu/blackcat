@@ -414,24 +414,22 @@
         }
         updateCanvasSize();
 
-        // 隨機返回「原始尺寸」或「放大一級尺寸」（蝴蝶維持單一適中尺寸）
+        // 黑貓頭保留「原始尺寸」與「放大一級尺寸」，貓掌與蝴蝶統一使用小貓掌尺寸
         function getTargetSizes() {
-          const isLarge = Math.random() > 0.5;
+          const isLargeCat = Math.random() > 0.5;
           const baseCat = width * 0.132;
-          const butterflyDiameter = Math.max(52, Math.min(76, baseCat * 1.12));
+          const baseCatDiameter = Math.max(46, Math.min(68, baseCat));
 
-          if (isLarge) {
-            // 放大一級
+          // 貓掌與蝴蝶統一為小貓掌尺寸
+          const pawDiameter = baseCatDiameter * 0.64;
+          const butterflyDiameter = pawDiameter;
+
+          if (isLargeCat) {
             const rawCat = width * 0.165;
             const catDiameter = Math.max(58, Math.min(90, rawCat));
-            const pawDiameter = catDiameter * 0.68;
             return { catDiameter, pawDiameter, butterflyDiameter };
           } else {
-            // 原始尺寸
-            const rawCat = width * 0.132;
-            const catDiameter = Math.max(46, Math.min(68, rawCat));
-            const pawDiameter = catDiameter * 0.64;
-            return { catDiameter, pawDiameter, butterflyDiameter };
+            return { catDiameter: baseCatDiameter, pawDiameter, butterflyDiameter };
           }
         }
 
