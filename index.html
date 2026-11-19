@@ -401,20 +401,29 @@
         // ==========================================
         let width = window.innerWidth || document.documentElement.clientWidth || 375;
         let height = window.innerHeight || document.documentElement.clientHeight || 667;
-        let floorOffset = 0; // 桌布模式下自動扣除 Windows 工作列高度，避免物件被工作列遮擋
         let dpr = Math.min(window.devicePixelRatio || 1, 2);
+        let floorOffset = 0;
 
         function updateCanvasSize() {
           width = window.innerWidth || document.documentElement.clientWidth || 375;
           height = window.innerHeight || document.documentElement.clientHeight || 667;
           dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-          // 若在 Windows 桌布模式（視窗全螢幕覆蓋工作列），自動偵測工作列高度並抬高地板
-          const taskbarHeight = (window.screen && window.screen.height && window.screen.availHeight)
+          // 若在 Windows 桌布模式（視窗全螢幕覆蓋工作列），自動偵測或套用 Windows 11 預設工作列高度 (48px)
+          const params = new URLSearchParams(window.location.search);
+          const customFloor = parseFloat(params.get('floor'));
+          const rawTaskbar = (window.screen && window.screen.height && window.screen.availHeight)
             ? Math.max(0, window.screen.height - window.screen.availHeight)
             : 0;
-          const isDesktopWallpaperMode = window.screen && Math.abs(height - window.screen.height) <= 4 && taskbarHeight > 0;
-          floorOffset = isDesktopWallpaperMode ? taskbarHeight : 0;
+          const isDesktopWallpaperMode = window.screen && Math.abs(height - window.screen.height) <= 6;
+
+          if (!Number.isNaN(customFloor)) {
+            floorOffset = customFloor;
+          } else if (isDesktopWallpaperMode) {
+            floorOffset = rawTaskbar > 0 ? rawTaskbar : 48;
+          } else {
+            floorOffset = 0;
+          }
 
           canvas.width = Math.floor(width * dpr);
           canvas.height = Math.floor(height * dpr);
