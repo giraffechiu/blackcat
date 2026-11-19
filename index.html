@@ -401,12 +401,21 @@
         // ==========================================
         let width = window.innerWidth || document.documentElement.clientWidth || 375;
         let height = window.innerHeight || document.documentElement.clientHeight || 667;
+        let floorOffset = 0; // 桌布模式下自動扣除 Windows 工作列高度，避免物件被工作列遮擋
         let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
         function updateCanvasSize() {
           width = window.innerWidth || document.documentElement.clientWidth || 375;
           height = window.innerHeight || document.documentElement.clientHeight || 667;
           dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+          // 若在 Windows 桌布模式（視窗全螢幕覆蓋工作列），自動偵測工作列高度並抬高地板
+          const taskbarHeight = (window.screen && window.screen.height && window.screen.availHeight)
+            ? Math.max(0, window.screen.height - window.screen.availHeight)
+            : 0;
+          const isDesktopWallpaperMode = window.screen && Math.abs(height - window.screen.height) <= 4 && taskbarHeight > 0;
+          floorOffset = isDesktopWallpaperMode ? taskbarHeight : 0;
+
           canvas.width = Math.floor(width * dpr);
           canvas.height = Math.floor(height * dpr);
           canvas.style.width = width + 'px';
@@ -501,16 +510,17 @@
             frictionStatic: 0.4
           };
 
+          const groundY = height - floorOffset;
           walls = [
-            Bodies.rectangle(width / 2, height + thickness / 2, width + thickness * 2, thickness, wallOpts),
+            Bodies.rectangle(width / 2, groundY + thickness / 2, width + thickness * 2, thickness, wallOpts),
             Bodies.rectangle(width / 2, -thickness * 3, width + thickness * 2, thickness, wallOpts),
             Bodies.rectangle(-thickness / 2, height / 2, thickness, height * 4, wallOpts),
             Bodies.rectangle(width + thickness / 2, height / 2, thickness, height * 4, wallOpts)
           ];
           World.add(engine.world, walls);
 
-          // 中央手繪灰綠色圓形「＋」靜態剛體碰撞箱
-          const btnRadius = 31;
+          // 中央手繪灰綠色圓形「＋」靜態剛體碰撞箱（貼合視覺圓形外框，消除多餘空隙）
+          const btnRadius = 27.5;
           centerObstacle = Bodies.circle(width / 2, height / 2, btnRadius, {
             isStatic: true,
             restitution: 0.48,
@@ -747,7 +757,7 @@
         // 6. 備援物理步進計算（僅無 Matter.js 時運行）
         // ==========================================
         function updateFallbackPhysics() {
-          const btnRadius = 31;
+          const btnRadius = 27.5;
           const cx = width / 2;
           const cy = height / 2;
           // 僅在游標／手指實際碰到物體外緣時才觸發（僅保留極小 6px 接觸容差）
@@ -790,8 +800,9 @@
               a.vx = -Math.abs(a.vx) * 0.5;
               a.vAngle = -a.vy * 0.015;
             }
-            if (a.y + a.radius > height) {
-              a.y = height - a.radius;
+            const groundY = height - floorOffset;
+            if (a.y + a.radius > groundY) {
+              a.y = groundY - a.radius;
               a.vy = -Math.abs(a.vy) * 0.48;
               a.vx *= 0.94;
               a.vAngle = a.vx * 0.02;
